@@ -1,10 +1,6 @@
-/*
- * H5F
- * https://github.com/ryanseddon/H5F/
- *
- * Copyright (c) 2012 Ryan Seddon
- * Licensed under the MIT license.
- */
+/*! H5F - v1.0.0 - 2012-06-01
+* https://github.com/ryanseddon/H5F/
+* Copyright (c) 2012 Ryan Seddon; Licensed MIT */
 
 var H5F = H5F || {};
 
@@ -76,21 +72,34 @@ var H5F = H5F || {};
         }
     };
     validity = function(el) {
+        /* 2012-06-26 SB: Don't validate disabled fields. */
         var elem = el,
-            missing = valueMissing(elem),
             attrs = { 
                 type: elem.getAttribute("type"), 
                 pattern: elem.getAttribute("pattern"), 
                 placeholder: elem.getAttribute("placeholder") 
             },
-            isType = /^(email|url)$/i,
-            evt = /^(input|keyup)$/i,
-            fType = ((isType.test(attrs.type)) ? attrs.type : ((attrs.pattern) ? attrs.pattern : false)),
-            patt = pattern(elem,fType),
-            step = range(elem,"step"),
-            min = range(elem,"min"),
-            max = range(elem,"max"),
+            missing = false,
+            isType = false,
+            evt = false,
+            fType = false,
+            patt = false,
+            step = false,
+            min = false,
+            max = false,
+            customError = false;
+
+        if (!elem.disabled) {
+            missing = valueMissing(elem);
+            isType = /^(email|url)$/i;
+            evt = /^(input|keyup)$/i;
+            fType = ((isType.test(attrs.type)) ? attrs.type : ((attrs.pattern) ? attrs.pattern : false));
+            patt = pattern(elem,fType);
+            step = range(elem,"step");
+            min = range(elem,"min");
+            max = range(elem,"max");
             customError = (custMsg !== "");
+        }
         
         elem.checkValidity = function() { return checkValidity.call(this,elem); };
         elem.setCustomValidity = function(msg) { setCustomValidity.call(elem,msg); };
@@ -106,7 +115,11 @@ var H5F = H5F || {};
             valid: (!missing && !patt && !step && !min && !max && !customError)
         };
         
+        /* 2012-06-21 SB: Don't try to mimic HTML5 placeholders by setting the placeholder text as the field value.
+           It's confusing to the user since it's not greyed out and it break the Spine model validation since the
+           field has a value in it when it really is empty.
         if(attrs.placeholder && !evt.test(curEvt)) { placeholder(elem); }
+        */
     };
     checkField = function (e) {
         var el = getTarget(e) || e, // checkValidity method passes element not event
@@ -118,7 +131,9 @@ var H5F = H5F || {};
             curEvt = e.type;
             if(!support()) { validity(el); }
             
-            if(el.validity.valid && el.value !== "" || el.value !== el.getAttribute("placeholder") && el.validity.valid) {
+            /* 2012-06-21 SB: comment out placeholder emulation
+            if(el.validity.valid && el.value !== "" || el.value !== el.getAttribute("placeholder") && el.validity.valid) { */
+            if(el.validity.valid && el.value !== "" || el.validity.valid) {
                 removeClass(el,[args.invalidClass,args.requiredClass]);
                 addClass(el,args.validClass);
             } else if(!events.test(curEvt)) {
@@ -140,7 +155,7 @@ var H5F = H5F || {};
         }
     };
     checkValidity = function (el) {
-        var f, ff, isRequired, hasPattern, invalid = false;
+        var f, ff, isRequired, hasPattern, hasValue, invalid = false;
         
         if(el.nodeName === "FORM") {
             f = el.elements;
@@ -150,8 +165,10 @@ var H5F = H5F || {};
                 
                 isRequired = !!(ff.attributes["required"]);
                 hasPattern = !!(ff.attributes["pattern"]);
+                hasValue = !!(ff.value != "undefined" && ff.value !== "");
                 
-                if(ff.nodeName !== "FIELDSET" && (isRequired || hasPattern && isRequired)) {
+                /* 2012-06-21 SB: check regex pattern if a value exists in the field */
+                if(ff.nodeName !== "FIELDSET" && (isRequired || hasPattern && hasValue)) {
                     checkField(ff);
                     if(!ff.validity.valid && !invalid) {
                         if(isSubmit) { // If it's not a submit event the field shouldn't be focused
@@ -187,20 +204,26 @@ var H5F = H5F || {};
         } else if(!type) {
             return false;
         } else {
-            var placeholder = el.getAttribute("placeholder"),
-                val = el.value;
+            /* 2012-06-21 SB: comment out placeholder emulation
+            var placeholder = el.getAttribute("placeholder");*/
+            var val = el.value;
             
             usrPatt = new RegExp('^(?:' + type + ')$');
             
+            /* 2012-06-21 SB: comment out placeholder emulation
             if(val === placeholder) {    
                 return true;
-            } else if(val === "") {
+            } else*/
+            if(val === "") {
                 return false;
             } else {
                 return !usrPatt.test(el.value);
             }
         }
     };
+    /* 2012-06-21 SB: Don't try to mimic HTML5 placeholders by setting the placeholder text as the field value.
+        It's confusing to the user since it's not greyed out and it break the Spine model validation since the
+        field has a value in it when it really is empty.
     placeholder = function(el) {
         var attrs = { placeholder: el.getAttribute("placeholder") },
             focus = /^(focus|focusin|submit)$/i,
@@ -222,6 +245,7 @@ var H5F = H5F || {};
             }
         }
     };
+    */
     range = function(el,type) {
         // Emulate min, max and step
         var min = parseInt(el.getAttribute("min"),10) || 0,
@@ -252,7 +276,31 @@ var H5F = H5F || {};
     valueMissing = function(el) {
         var placeholder = el.getAttribute("placeholder"),
             isRequired = !!(el.attributes["required"]);
-        return !!(isRequired && (el.value === "" || el.value === placeholder));
+
+        /* 2012-06-21 SB: Special case for checking select lists in IE */
+        if (el.type === 'select-one') {
+            /* Fix for IE 7 & 8 select lists - requires checking the options property to get their selected value */
+            if (isRequired) {
+                if (el.selectedIndex < 0) {
+                    return true;
+                }
+                var value = el.options[el.selectedIndex].text;
+                return value === "";
+            }
+        } else if (el.type === 'radio') {
+            if (isRequired) {
+                var rg = $('input:radio[name="' + el.name + '"]');
+                var anyChecked = false;
+                for (var i = rg.length - 1; i >= 0; --i)
+                {
+                    anyChecked |= !!(rg[i].checked);
+                }
+                return !anyChecked;
+            }
+        } else {
+            return !!(isRequired && (el.value === "")); /* || el.value === placeholder)); */
+        }
+        return false;
     };
     
     /* Util methods */
